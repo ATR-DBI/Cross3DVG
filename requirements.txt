@@ -1,0 +1,16 @@
+plyfile
+opencv-python
+trimesh==2.35.39
+tensorboardX
+easydict
+tqdm
+h5py
+matplotlib
+ipdb
+pandas
+joblib
+gdown
+ftfy
+regex
+git+https://github.com/openai/CLIP.git
+tensorboard
