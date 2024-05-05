@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from PIL import Image
 from plyfile import PlyData, PlyElement
 import pandas as pd
 
@@ -41,6 +42,46 @@ def read_plymesh(filepath):
         vertices = pd.DataFrame(plydata['vertex'].data).values
         faces = np.array([f[0] for f in plydata["face"].data])
         return vertices, faces
+
+def read_objmesh(filepath):
+    v, vt, vn, faceV, uvIDs, mtlfile = loadOBJ(filepath)
+    dirpath = os.path.dirname(filepath)
+    mtlpath = os.path.join(dirpath, mtlfile)
+    mtl_images = read_mtl_file(mtlpath)
+    
+    if len(faceV.keys()) != 1:
+        #print("obj file have multiple textures")
+        print("This code is not for OBJ file which have multiple textures")
+        print("it may not work well")
+        exit()
+
+    vc = texture_to_vertex_color(vt, uvIDs, mtl_images, dirpath)
+    vertex_data = concat_obj_data(v, vc, vn)
+
+    if len(vn) == 0:
+        vertex_plyfile = convert_vertex_data_to_plyfile_format(vertex_data, False)
+    else:
+        vertex_plyfile = convert_vertex_data_to_plyfile_format(vertex_data, True)
+
+    face_plyfile = convert_face_data_to_plyfile_format(faceV)
+
+    plydata = PlyData(
+                [
+                    PlyElement.describe(
+                        vertex_plyfile, 'vertex'),
+                    PlyElement.describe(face_plyfile, 'face')
+                ],
+                text=True, byte_order='='
+            )
+
+    if plydata.elements:
+        vertices = pd.DataFrame(plydata['vertex'].data).values
+        faces = np.array([f[0] for f in plydata["face"].data])
+        # print('vertices:', vertices)
+        # print('faces:', faces)
+        # exit()
+        return vertices, faces        
+
 
 def save_plymesh(vertices, faces, filename, verbose=True, with_label=True):
     """Save an RGB point cloud as a PLY file.
@@ -154,3 +195,149 @@ def voxelize_pointcloud(points, colors, labels, instances, faces, voxel_size=0.2
     quantized_instances = instances[scene_inds]
     
     return quantized_scene, quantized_scene_colors, quantized_labels, quantized_instances
+
+
+def loadOBJ(filePath):
+    vertices = []
+    uvs = []
+    normals = []
+    faceVertIDs = {}
+    uvIDs = {}
+    mtl = ""
+    mtlfile = ""
+
+    for line in open(filePath, "r"):
+        vals = line.split()
+        if len(vals) == 0:
+            continue
+        
+        if vals[0] == "mtllib":
+            mtlfile = ' '.join(vals[1:])
+
+        if vals[0] == "v":
+            v = list(map(float, vals[1:4]))
+            vertices.append(v)
+            if len(vals) == 7:
+                print("OBJ file have vertex colors")
+                exit()
+
+        if vals[0] == "vt":
+            vt = list(map(float, vals[1:3]))
+            uvs.append(vt)
+
+        if vals[0] == "vn":
+            vn = list(map(float, vals[1:4]))
+            normals.append(vn)
+        
+        if vals[0] == "usemtl":
+            mtl = vals[1]
+
+        if vals[0] == "f":
+            fvID = []
+            uvID = []
+            for f in vals[1:]:
+                w = f.split("/")
+                fvID.append(int(w[0]) - 1)
+                uvID.append(int(w[1]) - 1)
+            if mtl != "":
+                if mtl in faceVertIDs:
+                    faceVertIDs[mtl].append(fvID)
+                else:
+                    faceVertIDs[mtl] = []
+                    faceVertIDs[mtl].append(fvID)
+
+                if mtl in uvIDs:
+                    uvIDs[mtl].append(uvID)
+                else:
+                    uvIDs[mtl] = []
+                    uvIDs[mtl].append(uvID)
+        
+    vertices = np.array(vertices)
+    uvs = np.array(uvs)
+    normals = np.array(normals)
+
+    return vertices, uvs, normals, faceVertIDs, uvIDs, mtlfile
+
+
+def read_mtl_file(filePath):
+    mtl_images = {}
+    for line in open(filePath, "r"):
+        vals = line.split()
+        
+        if len(vals) == 0:
+            continue
+
+        if vals[0] == "newmtl":
+            newmtl = vals[1]
+
+        if vals[0] == "map_Kd":
+            image_name = ' '.join(vals[1:])
+            if not newmtl in mtl_images:
+                mtl_images[newmtl] = {}
+            
+            mtl_images[newmtl]["map_Kd"] = image_name
+
+    return mtl_images
+
+
+
+def texture_to_vertex_color(vt, uvIDs, mtl_images, dirpath):
+    for mtl_name, uvs in uvIDs.items():
+        if mtl_name in mtl_images:
+            image_name = mtl_images[mtl_name]["map_Kd"]
+            image_path = os.path.join(dirpath, image_name)
+            ##v3　複数のtexはここを変更
+            vc = uv_to_color(vt, Image.open(image_path))
+            return vc
+        else:
+            print("Error Occured")
+            exit()
+
+    return 0
+
+
+def concat_obj_data(vertices, vertex_color, vertex_normals):
+    if len(vertex_normals) == 0:
+        vertex_data = np.concatenate((vertices, vertex_color), axis=1)
+    else:
+        vertex_data = np.concatenate((vertices, vertex_color, vertex_normals), axis=1)
+    vertex_data = vertex_data.astype(np.float32)
+    return vertex_data
+
+
+def uv_to_color(uv, image):
+
+    if image is None or uv is None:
+        return None
+
+    uv = np.asanyarray(uv, dtype=np.float64)
+
+    x = (uv[:, 0] * (image.width - 1))
+    y = ((1 - uv[:, 1]) * (image.height - 1))
+
+    x = x.round().astype(np.int64) % image.width
+    y = y.round().astype(np.int64) % image.height
+
+    colors = np.asanyarray(image.convert('RGBA'))[y, x]
+
+    assert colors.ndim == 2 and colors.shape[1] == 4
+
+    colors = colors[:, :3]
+    return colors    
+
+
+def convert_vertex_data_to_plyfile_format(vertex_data, with_vn):
+    vertex_plyfile = [tuple(vd) for vd in vertex_data]
+    if with_vn:
+        vertex_plyfile_np = np.array(vertex_plyfile, dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4'), ('red', 'u1'), ('green', 'u1'), ('blue', 'u1'), ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4')])
+    else:
+        vertex_plyfile_np = np.array(vertex_plyfile, dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4'), ('red', 'u1'), ('green', 'u1'), ('blue', 'u1')])
+    return vertex_plyfile_np
+
+
+def convert_face_data_to_plyfile_format(face_data):
+    if len(face_data.keys()) == 1:
+        face_plyfile = [(arr, ) for arr in list(face_data.values())[0]]
+        face_plyfile_np = np.array(face_plyfile, dtype=[('vertex_indices', 'i4', (3,))])
+        return face_plyfile_np
+    return 0

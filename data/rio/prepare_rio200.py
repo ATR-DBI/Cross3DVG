@@ -17,10 +17,10 @@ from itertools import repeat
 sys.path.append("../scannet")
 from scannet200_constants import CLASS_LABELS_20, CLASS_LABELS_200, VALID_CLASS_IDS_200
 from scannet200_splits import HEAD_CATS_SCANNET_200, COMMON_CATS_SCANNET_200, TAIL_CATS_SCANNET_200
-from utils import read_plymesh, compute_normal, point_indices_from_group, save_plymesh
+from utils import read_plymesh, read_objmesh, compute_normal, point_indices_from_group, save_plymesh
 
-
-CLOUD_FILE_PFIX = 'mesh.refined.v2.color'
+#CLOUD_FILE_PFIX = 'mesh.refined.v2.color'
+CLOUD_FILE_PFIX = 'mesh.refined.v2'
 AGGREGATIONS_FILE_PFIX = 'semseg.v2.json'
 SEGMENTS_FILE_PFIX = 'mesh.refined.0.010000.segs.v2.json'
 CLASS_IDs = VALID_CLASS_IDS_200
@@ -51,7 +51,8 @@ def get_reference_dic(Scan3RJson_PATH):
 
 def handle_process(scene_path, output_path, save_mesh, labels_pd, train_scenes, val_scenes, test_scenes):
     scene_id = scene_path.split('/')[-1]
-    mesh_path = os.path.join(scene_path, f'{CLOUD_FILE_PFIX}.ply')    
+    #mesh_path = os.path.join(scene_path, f'{CLOUD_FILE_PFIX}.ply')    
+    obj_path = os.path.join(scene_path, f'{CLOUD_FILE_PFIX}.obj')    
     aggregations_file = os.path.join(scene_path, f'{AGGREGATIONS_FILE_PFIX}')
     segments_file = os.path.join(scene_path, f'{SEGMENTS_FILE_PFIX}')
     # Rotating the mesh to axis aligned
@@ -73,7 +74,8 @@ def handle_process(scene_path, output_path, save_mesh, labels_pd, train_scenes, 
 
     print('Processing: ', scene_id, 'in', split_name)
     # pointcloud: num_points, 7
-    pointcloud, faces_array = read_plymesh(mesh_path)
+    #pointcloud, faces_array = read_plymesh(mesh_path)
+    pointcloud, faces_array = read_objmesh(obj_path)
     points = pointcloud[:, :3]
     colors = pointcloud[:, 3:6]
     alphas = pointcloud[:, -1]
